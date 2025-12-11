@@ -1,0 +1,70 @@
+# Primary Environment Configuration Example
+# Copy this file to terraform.tfvars and customize for your environment
+
+# Project Configuration
+project_name = "terraform-dr-infrastructure"
+owner        = "Your Name"
+cost_center  = "Engineering"
+
+# Region Configuration
+aws_region         = "us-east-1"
+availability_zones = ["us-east-1a", "us-east-1b"]
+
+# Network Configuration
+vpc_cidr           = "10.0.0.0/16"
+enable_nat_gateway = true
+enable_flow_logs   = true
+enable_vpc_endpoints = false
+
+# Security Configuration
+app_port              = 8080
+bastion_allowed_cidrs = ["YOUR_IP_ADDRESS/32"]  # Replace with your IP
+
+# Compute Configuration
+web_instance_type    = "t2.micro"
+app_instance_type    = "t2.micro"
+key_name             = ""  # Optional: Your EC2 key pair name
+
+web_min_size         = 2
+web_max_size         = 4
+web_desired_capacity = 2
+
+app_min_size         = 2
+app_max_size         = 4
+app_desired_capacity = 2
+
+health_check_path    = "/health"
+enable_bastion       = true
+
+# Database Configuration
+db_engine                = "postgres"
+db_engine_version        = "15.3"
+db_instance_class        = "db.t2.micro"
+db_allocated_storage     = 20
+db_max_allocated_storage = 100
+db_name                  = "appdb"
+db_username              = "dbadmin"
+db_parameter_group_family = "postgres15"
+
+enable_multi_az             = true
+backup_retention_period     = 7
+backup_window               = "03:00-04:00"
+maintenance_window          = "sun:04:00-sun:05:00"
+skip_final_snapshot         = false
+enable_enhanced_monitoring  = true
+enable_performance_insights = false
+enable_deletion_protection  = true
+
+# Storage Configuration
+create_assets_bucket = false
+
+# Monitoring Configuration
+alarm_email_endpoints = ["your-email@example.com"]  # Replace with your email
+log_retention_days    = 7
+enable_ec2_alarms     = true
+enable_rds_alarms     = true
+
+# Terraform State Configuration
+# Set these after creating the S3 backend
+terraform_state_bucket = ""  # Will be set after backend creation
+terraform_state_region = "us-east-1"
