@@ -1,0 +1,76 @@
+# Secondary Environment Configuration Example (Disaster Recovery)
+# Copy this file to terraform.tfvars and customize for your environment
+
+# Project Configuration
+project_name = "terraform-dr-infrastructure"
+owner        = "Your Name"
+cost_center  = "Engineering"
+
+# Region Configuration
+aws_region         = "us-west-2"
+availability_zones = ["us-west-2a", "us-west-2b"]
+
+# Network Configuration
+vpc_cidr           = "10.1.0.0/16"  # Different from primary
+enable_nat_gateway = true
+enable_flow_logs   = true
+enable_vpc_endpoints = false
+
+# Security Configuration
+app_port              = 8080
+bastion_allowed_cidrs = ["YOUR_IP_ADDRESS/32"]  # Replace with your IP
+
+# Compute Configuration (Minimal for standby)
+web_instance_type    = "t2.micro"
+app_instance_type    = "t2.micro"
+key_name             = ""  # Optional: Your EC2 key pair name
+
+# Minimal capacity for standby (scale up during failover)
+web_min_size         = 1
+web_max_size         = 4
+web_desired_capacity = 1
+
+app_min_size         = 1
+app_max_size         = 4
+app_desired_capacity = 1
+
+health_check_path    = "/health"
+enable_bastion       = true
+
+# Database Configuration (Read Replica)
+db_engine                = "postgres"
+db_engine_version        = "15.3"
+db_instance_class        = "db.t2.micro"
+db_allocated_storage     = 20
+db_max_allocated_storage = 100
+db_name                  = "appdb"
+db_username              = "dbadmin"
+db_parameter_group_family = "postgres15"
+
+# IMPORTANT: Set this to the ARN of the primary database
+source_db_identifier = "arn:aws:rds:us-east-1:ACCOUNT_ID:db:terraform-dr-infrastructure-primary-db"
+
+backup_retention_period     = 7
+skip_final_snapshot         = false
+enable_enhanced_monitoring  = true
+enable_performance_insights = false
+enable_deletion_protection  = true
+
+# Storage Configuration
+create_assets_bucket = false
+
+# S3 Replication (from primary to secondary)
+enable_replication             = true
+replication_destination_bucket = ""  # ARN of primary region backups bucket
+replication_kms_key_id         = ""  # KMS key ARN from primary region
+
+# Monitoring Configuration
+alarm_email_endpoints = ["your-email@example.com"]  # Replace with your email
+log_retention_days    = 7
+enable_ec2_alarms     = true
+enable_rds_alarms     = true
+
+# Terraform State Configuration
+# Set these after creating the S3 backend
+terraform_state_bucket = ""  # Same as primary
+terraform_state_region = "us-east-1"
