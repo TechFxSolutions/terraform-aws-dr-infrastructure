@@ -36,6 +36,21 @@ print_info() {
     echo -e "${BLUE}ℹ${NC} $1"
 }
 
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_ROOT"
+
+# Load environment variables from .env file if it exists
+if [ -f ".env" ]; then
+    print_info "Loading AWS credentials from .env file..."
+    set -a
+    source .env
+    set +a
+    print_info "AWS credentials loaded from .env"
+fi
+
 # Function to check AWS resource
 check_resource() {
     local resource_type=$1
@@ -87,14 +102,15 @@ echo "  Infrastructure Validation"
 echo "=========================================="
 echo ""
 
-# Get script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
 # Check if AWS CLI is configured
 print_info "Checking AWS credentials..."
 if ! aws sts get-caller-identity > /dev/null 2>&1; then
     print_fail "AWS credentials not configured"
+    echo ""
+    echo "Please configure AWS credentials using one of these methods:"
+    echo "1. Create .env file from .env.example and add your credentials"
+    echo "2. Run 'aws configure'"
+    echo "3. Set environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"
     exit 1
 fi
 print_pass "AWS credentials configured"
