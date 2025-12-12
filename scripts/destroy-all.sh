@@ -26,6 +26,17 @@ print_error() {
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+cd "$PROJECT_ROOT"
+
+# Load environment variables from .env file if it exists
+if [ -f ".env" ]; then
+    print_info "Loading AWS credentials from .env file..."
+    set -a
+    source .env
+    set +a
+    print_info "AWS credentials loaded from .env"
+fi
+
 echo "=========================================="
 echo "  DESTROY ALL INFRASTRUCTURE"
 echo "=========================================="
@@ -50,8 +61,6 @@ fi
 
 print_warn "Starting destruction in 10 seconds... Press Ctrl+C to cancel"
 sleep 10
-
-cd "$PROJECT_ROOT"
 
 # Load environment variables if they exist
 if [ -f ".env" ]; then
