@@ -62,11 +62,6 @@ fi
 print_warn "Starting destruction in 10 seconds... Press Ctrl+C to cancel"
 sleep 10
 
-# Load environment variables if they exist
-if [ -f ".env" ]; then
-    source .env
-fi
-
 # Step 1: Destroy Secondary Region
 print_info "Step 1/4: Destroying secondary region infrastructure..."
 cd environments/secondary
@@ -106,35 +101,99 @@ fi
 
 cd "$PROJECT_ROOT"
 
-# Step 4: Destroy S3 Backend (Optional)
+# Step 4: Destroy S3 Backend (with prevent_destroy handling)
 print_info "Step 4/4: S3 Backend cleanup..."
 cd global/s3-backend
 
 if [ -f "terraform.tfstate" ]; then
     echo ""
-    print_warn "S3 Backend contains Terraform state files"
+    print_warn "S3 Backend contains Terraform state files and has prevent_destroy protection"
     read -p "Do you want to destroy the S3 backend? (yes/no): " DESTROY_BACKEND
     
     if [ "$DESTROY_BACKEND" == "yes" ]; then
-        # Empty S3 bucket first
+        # Get bucket name before destroying
         STATE_BUCKET=$(terraform output -raw s3_bucket_name 2>/dev/null || echo "")
+        LOCK_TABLE=$(terraform output -raw dynamodb_table_name 2>/dev/null || echo "")
+        
         if [ -n "$STATE_BUCKET" ]; then
             print_info "Emptying S3 bucket: $STATE_BUCKET"
-            aws s3 rm "s3://$STATE_BUCKET" --recursive || true
             
-            # Delete all versions
+            # Empty the bucket (delete all objects and versions)
+            aws s3 rm "s3://$STATE_BUCKET" --recursive 2>/dev/null || true
+            
+            # Delete all object versions
+            print_info "Deleting all object versions..."
             aws s3api list-object-versions \
                 --bucket "$STATE_BUCKET" \
-                --query 'Versions[].{Key:Key,VersionId:VersionId}' \
-                --output json | \
-                jq -r '.[] | "--key \(.Key) --version-id \(.VersionId)"' | \
-                xargs -I {} aws s3api delete-object --bucket "$STATE_BUCKET" {} || true
+                --output json 2>/dev/null | \
+                jq -r '.Versions[]? | "--key \"\(.Key)\" --version-id \(.VersionId)"' | \
+                xargs -I {} aws s3api delete-object --bucket "$STATE_BUCKET" {} 2>/dev/null || true
+            
+            # Delete all delete markers
+            print_info "Deleting all delete markers..."
+            aws s3api list-object-versions \
+                --bucket "$STATE_BUCKET" \
+                --output json 2>/dev/null | \
+                jq -r '.DeleteMarkers[]? | "--key \"\(.Key)\" --version-id \(.VersionId)"' | \
+                xargs -I {} aws s3api delete-object --bucket "$STATE_BUCKET" {} 2>/dev/null || true
         fi
         
-        terraform destroy -auto-approve
-        print_info "S3 backend destroyed"
+        # Remove prevent_destroy from the Terraform configuration temporarily
+        print_info "Removing prevent_destroy protection..."
+        
+        # Create a temporary main.tf without prevent_destroy
+        if [ -f "main.tf" ]; then
+            # Backup original
+            cp main.tf main.tf.backup
+            
+            # Remove lifecycle blocks with prevent_destroy
+            sed -i.tmp '/lifecycle {/,/}/d' main.tf
+            rm -f main.tf.tmp
+            
+            print_info "Attempting to destroy S3 backend..."
+            
+            # Try to destroy
+            if terraform destroy -auto-approve; then
+                print_info "S3 backend destroyed successfully"
+                rm -f main.tf.backup
+            else
+                print_error "Failed to destroy S3 backend"
+                # Restore original file
+                mv main.tf.backup main.tf
+                
+                # Manual cleanup instructions
+                echo ""
+                print_warn "Automatic destruction failed. Manual cleanup required:"
+                echo ""
+                echo "1. Delete S3 bucket manually:"
+                if [ -n "$STATE_BUCKET" ]; then
+                    echo "   aws s3 rb s3://$STATE_BUCKET --force"
+                fi
+                echo ""
+                echo "2. Delete DynamoDB table manually:"
+                if [ -n "$LOCK_TABLE" ]; then
+                    echo "   aws dynamodb delete-table --table-name $LOCK_TABLE"
+                fi
+                echo ""
+                echo "3. Then remove the Terraform state:"
+                echo "   rm -f global/s3-backend/terraform.tfstate*"
+            fi
+        fi
     else
         print_info "S3 backend preserved"
+        echo ""
+        print_warn "Note: S3 backend still exists with the following resources:"
+        if [ -n "$STATE_BUCKET" ]; then
+            echo "  - S3 Bucket: $STATE_BUCKET"
+        fi
+        if [ -n "$LOCK_TABLE" ]; then
+            echo "  - DynamoDB Table: $LOCK_TABLE"
+        fi
+        echo ""
+        echo "To destroy manually later:"
+        echo "  1. cd global/s3-backend"
+        echo "  2. Edit main.tf and remove 'lifecycle { prevent_destroy = true }' blocks"
+        echo "  3. terraform destroy"
     fi
 else
     print_warn "S3 backend not found, skipping..."
@@ -144,7 +203,6 @@ cd "$PROJECT_ROOT"
 
 # Cleanup local files
 print_info "Cleaning up local files..."
-rm -f .env
 find . -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
 find . -type f -name "terraform.tfstate*" -delete 2>/dev/null || true
 find . -type f -name ".terraform.lock.hcl" -delete 2>/dev/null || true
@@ -154,12 +212,23 @@ echo "=========================================="
 echo "  DESTRUCTION COMPLETE"
 echo "=========================================="
 echo ""
-print_info "All infrastructure has been destroyed."
+print_info "Infrastructure has been destroyed."
 echo ""
 echo "Remaining manual cleanup (if needed):"
 echo "1. Check AWS Console for any remaining resources"
 echo "2. Review CloudWatch Logs for any retained log groups"
 echo "3. Check S3 for any remaining buckets"
 echo "4. Review IAM for any orphaned roles/policies"
+echo ""
+
+# Check if .env should be removed
+read -p "Do you want to remove the .env file? (yes/no): " REMOVE_ENV
+if [ "$REMOVE_ENV" == "yes" ]; then
+    rm -f .env
+    print_info ".env file removed"
+else
+    print_info ".env file preserved"
+fi
+
 echo ""
 print_info "Destruction script completed."
