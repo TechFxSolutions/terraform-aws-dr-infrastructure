@@ -28,6 +28,26 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+cd "$PROJECT_ROOT"
+
+# Load environment variables from .env file if it exists
+if [ -f ".env" ]; then
+    print_info "Loading AWS credentials from .env file..."
+    
+    # Export variables from .env file
+    set -a
+    source .env
+    set +a
+    
+    print_info "AWS credentials loaded from .env"
+else
+    print_warn ".env file not found. Checking for AWS credentials..."
+fi
+
 # Check prerequisites
 print_info "Checking prerequisites..."
 
@@ -44,18 +64,19 @@ fi
 # Verify AWS credentials
 print_info "Verifying AWS credentials..."
 if ! aws sts get-caller-identity > /dev/null 2>&1; then
-    print_error "AWS credentials are not configured. Run 'aws configure'"
+    print_error "AWS credentials are not configured."
+    print_error ""
+    print_error "Please configure AWS credentials using one of these methods:"
+    print_error "1. Create .env file from .env.example and add your credentials"
+    print_error "2. Run 'aws configure'"
+    print_error "3. Set environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY"
     exit 1
 fi
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+CURRENT_USER=$(aws sts get-caller-identity --query Arn --output text)
 print_info "Using AWS Account: $ACCOUNT_ID"
-
-# Get script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
-cd "$PROJECT_ROOT"
+print_info "Current User: $CURRENT_USER"
 
 # Step 1: Deploy S3 Backend
 print_info "Step 1/5: Deploying S3 backend for Terraform state..."
@@ -74,9 +95,23 @@ if [ ! -f "terraform.tfstate" ]; then
     print_info "  Bucket: $STATE_BUCKET"
     print_info "  Lock Table: $LOCK_TABLE"
     
-    # Save to file for later use
-    echo "export TF_STATE_BUCKET=$STATE_BUCKET" > "$PROJECT_ROOT/.env"
-    echo "export TF_STATE_LOCK_TABLE=$LOCK_TABLE" >> "$PROJECT_ROOT/.env"
+    # Update .env file with backend info
+    if [ -f "$PROJECT_ROOT/.env" ]; then
+        # Remove old backend config if exists
+        sed -i.bak '/^TF_STATE_BUCKET=/d' "$PROJECT_ROOT/.env"
+        sed -i.bak '/^TF_STATE_LOCK_TABLE=/d' "$PROJECT_ROOT/.env"
+        rm -f "$PROJECT_ROOT/.env.bak"
+    else
+        touch "$PROJECT_ROOT/.env"
+    fi
+    
+    # Append new backend config
+    echo "" >> "$PROJECT_ROOT/.env"
+    echo "# Terraform Backend Configuration (auto-generated)" >> "$PROJECT_ROOT/.env"
+    echo "TF_STATE_BUCKET=$STATE_BUCKET" >> "$PROJECT_ROOT/.env"
+    echo "TF_STATE_LOCK_TABLE=$LOCK_TABLE" >> "$PROJECT_ROOT/.env"
+    
+    print_info "Backend configuration saved to .env file"
 else
     print_warn "S3 backend already exists, skipping..."
     STATE_BUCKET=$(terraform output -raw s3_bucket_name)
